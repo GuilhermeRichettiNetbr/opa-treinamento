@@ -1,0 +1,240 @@
+{
+  "info": {
+    "name": "Treinamento OPA - Token Microsoft",
+    "description": "Collection do treinamento de OPA.\n\n1. Preencha as variáveis da collection (tenantId, audience, clientId, clientSecret).\n2. Rode '0 - Autenticação / Obter token (client credentials)': o token é salvo automaticamente na variável {{token}}.\n3. Rode as demais requisições.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080" },
+    { "key": "opaUrl", "value": "http://localhost:8181" },
+    { "key": "tenantId", "value": "00000000-0000-0000-0000-000000000000" },
+    { "key": "audience", "value": "api://00000000-0000-0000-0000-000000000000" },
+    { "key": "clientId", "value": "" },
+    { "key": "clientSecret", "value": "" },
+    { "key": "token", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "0 - Autenticação",
+      "item": [
+        {
+          "name": "Obter token (client credentials)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Token emitido pela Microsoft', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "if (body.access_token) {",
+                  "  pm.collectionVariables.set('token', body.access_token);",
+                  "  console.log('Token salvo em {{token}}. Veja as claims em https://jwt.ms');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                { "key": "grant_type", "value": "client_credentials" },
+                { "key": "client_id", "value": "{{clientId}}" },
+                { "key": "client_secret", "value": "{{clientSecret}}" },
+                { "key": "scope", "value": "{{audience}}/.default" }
+              ]
+            },
+            "url": "https://login.microsoftonline.com/{{tenantId}}/oauth2/v2.0/token",
+            "description": "Obtém um token de aplicação no Microsoft Entra ID.\n\nPré-requisitos:\n- Um App Registration 'cliente' com um client secret.\n- Na API (api-produtos), a app role 'Produtos.Escrever' com Allowed member types = Applications.\n- No cliente: API permissions → My APIs → api-produtos → Application permissions → Produtos.Escrever → Grant admin consent.\n\nSem a role concedida, o token vem sem a claim 'roles' e o POST /produtos é negado (ótimo para demonstrar!)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1 - Serviço Produtos",
+      "item": [
+        {
+          "name": "Health (sem autorização)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health"
+          }
+        },
+        {
+          "name": "Listar produtos - SEM token (403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403 Forbidden', () => pm.response.to.have.status(403));",
+                  "pm.test('Motivo: token ausente', () => pm.expect(pm.response.json().erro).to.include('ausente'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/produtos"
+          }
+        },
+        {
+          "name": "Listar produtos - token INVÁLIDO (403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403 Forbidden', () => pm.response.to.have.status(403));",
+                  "pm.test('Motivo: token inválido', () => pm.expect(pm.response.json().erro).to.include('inválido'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer abc.def.ghi" }
+            ],
+            "url": "{{baseUrl}}/produtos"
+          }
+        },
+        {
+          "name": "Listar produtos - token válido (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('200 OK', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/produtos"
+          }
+        },
+        {
+          "name": "Criar produto - exige role Produtos.Escrever (201 ou 403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('201 com a role / 403 sem a role', () => pm.expect(pm.response.code).to.be.oneOf([201, 403]));",
+                  "if (pm.response.code === 403) console.log('Negado:', pm.response.json().erro);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [{ "key": "token", "value": "{{token}}", "type": "string" }]
+            },
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nome\": \"Monitor\"\n}"
+            },
+            "url": "{{baseUrl}}/produtos"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2 - OPA direto",
+      "item": [
+        {
+          "name": "Consultar decisão completa (allow, motivo, usuario)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"input\": {\n    \"method\": \"GET\",\n    \"path\": \"/produtos\",\n    \"authorization\": \"Bearer {{token}}\"\n  }\n}"
+            },
+            "url": "{{opaUrl}}/v1/data/authz",
+            "description": "Pergunta ao OPA exatamente o que o serviço Go pergunta. Troque method/path/authorization para explorar a política."
+          }
+        },
+        {
+          "name": "Consultar só o allow",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"input\": {\n    \"method\": \"POST\",\n    \"path\": \"/produtos\",\n    \"authorization\": \"Bearer {{token}}\"\n  }\n}"
+            },
+            "url": "{{opaUrl}}/v1/data/authz/allow"
+          }
+        },
+        {
+          "name": "Ver claims do token validado",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"input\": {\n    \"authorization\": \"Bearer {{token}}\"\n  }\n}"
+            },
+            "url": "{{opaUrl}}/v1/data/authz/claims",
+            "description": "Retorna as claims do token somente se ele for válido. Se o resultado vier vazio, o token foi rejeitado."
+          }
+        },
+        {
+          "name": "Listar políticas carregadas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{opaUrl}}/v1/policies",
+            "description": "Mostra que a política foi carregada de dentro da imagem (/policies/authz.rego)."
+          }
+        },
+        {
+          "name": "Health do OPA",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{opaUrl}}/health"
+          }
+        }
+      ]
+    }
+  ]
+}
