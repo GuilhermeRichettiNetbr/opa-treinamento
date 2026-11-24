@@ -55,7 +55,7 @@ default allow := false
 allow if {
 	token_valido
 	input.method == "GET"
-	input.path == "/produtos"
+	input.path == "/produtos"	
 }
 
 # Apenas quem tem a role "Produtos.Escrever" pode CRIAR produtos
